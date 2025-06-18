@@ -1,0 +1,322 @@
+---
+title: "2024 Regork Midterm Report - Vegetarian Expansion Analysis"
+author: "Ryan Morris, Sam Pitstick, Rudra Agrawal"
+date: "2024-10-11"
+output:
+  html_document:
+    code_folding: hide
+---
+
+## Midterm Report - Expansion of Vegetarian and Vegan options {.tabset .tabset-pills}
+
+### Introduction
+
+#### Why Expand the Vegetarian/Vegan Categories
+
+  As we look ahead to the next year of business, a key focus for Regork is understanding emerging market trends and determining how best to capitalize on them. One trend that stands out is the increasing demand for plant-based foods that appeal to vegetarian and vegan consumers. According to data from the Plant Based Foods Association, sales of plant-based foods have grown by 8.1% across all categories, with the overall market exceeding $3.1 billion in sales.
+
+  In this report, we analyze our sales data to assess whether similar growth trends are occurring within Regork's product categories. Using this data, we will identify which categories have the greatest potential for expansion and determine the key demographics we should target with marketing efforts. Our analysis will provide insights that will enable Regork to strategically expand its offerings in the vegetarian and vegan categories, helping to capture a greater share of this growing market. 
+
+---
+
+### Packages/Libraries Required
+
+#### The following packages and libraries were used:
+             
+
+- `complete journey` - Data package containing information on retail transactions from 2469 households during the 2016-2017 year.
+- `tidyverse` - A collection of open- source packages that offer methods to import, tidy, manipulate, and visualize data.
+- `knitr` - Offers methods to help generate reports within R markdown
+- `ggplot2` - part of tidyverse, this package offers several methods to help display data in a variety of geoms
+             
+
+```{r}
+#Load tidyverse, completejourney, plotly, shiny  packages
+suppressMessages(library(tidyverse))
+suppressMessages(library(completejourney))
+```
+
+
+### Data Aggregation and Tidying
+```{r}
+#Get Transaction Data
+transactions <- get_transactions()
+
+#Join Transactions and Products tables for later use
+productTrans <- transactions %>%
+  inner_join(products, by = "product_id")
+
+#Create Transaction and Product join while filtering for:
+#"FROZEN MEAT (VEGETARIAN)" "RICE BEVERAGE" "SOY BEVERAGE" "SOY/RICE MILK" 
+#"TOFU" "MEATLESS/VEGETARIAN" "NON-DAIRY CHEESE" "VEGETARIAN MEATS" "VEGETARIAN MISC"
+VegeTransactions <- products %>%
+  inner_join(transactions, by = "product_id") %>%
+  filter(product_type %in% c("FROZEN MEAT (VEGETARIAN)", "RICE BEVERAGE", "SOY BEVERAGE", "SOY/RICE MILK", "TOFU", "MEATLESS/VEGETARIAN", "NON-DAIRY CHEESE", "VEGETARIAN MEATS", "VEGETARIAN MISC"))
+
+#Create lists of product ids related to our products of interest:
+VegeProducts <- VegeTransactions %>%
+  filter(product_type %in% c("FROZEN MEAT (VEGETARIAN)", "RICE BEVERAGE", "SOY BEVERAGE", "SOY/RICE MILK", "TOFU", "MEATLESS/VEGETARIAN", "NON-DAIRY CHEESE", "VEGETARIAN MEATS", "VEGETARIAN MISC")) %>%
+  group_by(product_type) %>%
+  summarize(Unique_Product_Ids = list(unique(product_id)), .groups = 'drop')
+
+#Find the Total Sales Value for products of interest 
+TotalVegeSales <- VegeTransactions %>%
+  summarize(TotalSales = sum(sales_value))
+
+#Find Total sales value for products of interest by store location
+VegaStoreVolumes <- VegeTransactions %>%
+  group_by(store_id) %>%
+  summarize(TotalStoreSales = sum(sales_value)) %>%
+  arrange(desc(TotalStoreSales))
+
+# Color palette
+my_colors <- c("#f5fd3c", "#14D90D", "#33FFBD", "#9e06a2",  "#d11fff", "#f526df",  "#FF33A6", "#3380FF",  "#34c9f5",  "#e2c505","#55ad01", "#000000")
+
+#Join the demographics table with VegeTransactions
+VegeDemoTransactions <- VegeTransactions %>%
+  inner_join(demographics, by = "household_id")
+
+#Group the total sales by income levels and age
+VegeIncomeSales <- VegeDemoTransactions %>%
+  group_by(income, age) %>%
+  summarize(TotalIncomeSales = sum(sales_value), .groups = 'drop')
+
+#Group the total sales by Household Compositions
+VegeFamilyCompSales <- VegeDemoTransactions %>%
+  group_by(household_comp) %>%
+  summarize(TotalAgeSales = sum(sales_value))
+
+#Create a summary of each product types total sales
+VegeSalesByProduct <- VegeTransactions %>%
+  group_by(product_type) %>%
+  summarize(TotalSales = sum(sales_value)) %>%
+  arrange(desc(TotalSales))
+
+# Filter down table to relevant information for transactions, and then to top 5 performers in Vegetarian category.
+#Group by product type and week for graphing
+VegeProductWeeklySales <- VegeTransactions %>%
+  select(c("product_type", "sales_value", "week", "transaction_timestamp")) %>%
+  filter(product_type %in% c("SOY BEVERAGE", "SOY/RICE MILK","FROZEN MEAT (VEGETARIAN)", "VEGETARIAN MEATS", "TOFU")) %>%
+  group_by(product_type, week) 
+
+#Calculate the Percentage Change in the Top 5 Categories
+VegeProductWeeklySalesPerc <- VegeProductWeeklySales %>%
+  arrange(product_type, week) %>% 
+  group_by(product_type) %>%
+  mutate(PercentChange = ifelse(lag(sales_value) == 0, NA, (sales_value - lag(sales_value)) / lag(sales_value) * 100)) %>%
+  summarize(averagePercChange = mean(PercentChange, na.rm = TRUE))
+
+#Create Smooth graph tracking sales trends of top 5 performers
+VegeWeeklySalesTrends <- VegeProductWeeklySales %>%
+  ggplot(aes(x = week, y = sales_value, colour = product_type)) +
+  geom_smooth(method = 'loess', formula = y ~ x) +
+  labs(title = "Weekly Sales by Vegetarian/Vegan Item in 2017",
+        subtitle = "Sales Trends of Top 5 Performers in the Category",
+        x = "Week of 2017",
+        y = "Total Sales($)",
+        color = "Products",
+        caption = "https://github.com/bradleyboehmke/completejourney")
+
+#Create Pie Graph of Sales based on Income Levels
+VegePieIncome <- VegeDemoTransactions %>%
+  ggplot(aes(x = "", sales_value, fill = income)) +
+  geom_bar(stat = 'identity', width = 1, show.legend = TRUE) +
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = my_colors) +
+  theme_void() +
+  labs(title = "Percentage of Customers by Income Range", 
+       caption = "https://github.com/bradleyboehmke/completejourney")
+
+
+#Create Pie Graph of Sales based on Ages
+VegePieAge <- VegeDemoTransactions %>%
+  ggplot(aes(x = "", sales_value, fill = age)) +
+  geom_bar(stat = 'identity', width = 1, show.legend = TRUE) +
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = my_colors) +
+  theme_void() +
+  labs(title = "Percentage of Customers by Age", 
+       caption = "https://github.com/bradleyboehmke/completejourney")
+
+
+#Create Pie Graph of Sales based on Household comps - Changed
+VegePieHouseComp <- VegeDemoTransactions %>%
+  ggplot(aes(x = factor(1), sales_value, fill = household_comp)) +
+  geom_bar(stat = 'identity', width = 1, show.legend = TRUE) +
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = my_colors) +
+  theme_void() +
+  labs(title = "Household Compositions that Purchase Vegetarian Items", 
+       caption = "https://github.com/bradleyboehmke/completejourney")
+  
+
+#Create graph for Number of transactions at store locations
+VegeStoreGraph <- VegeTransactions %>%
+  group_by(store_id) %>%
+  summarise(TransactionCount = n()) %>%
+  arrange(desc(TransactionCount)) %>%
+  slice_head(n = 10) %>%
+  ggplot(aes(x = as.factor(store_id), y = TransactionCount, fill = as.factor(store_id))) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  scale_fill_manual(values = my_colors) +
+  theme_minimal() +
+  labs(title = "Vegetarian Related Transactions by Store Locations",
+        subtitle = "About",
+        x = "Store ID",
+        y = "Number of Transactions",
+        color = "Household size",
+        caption = "https://github.com/bradleyboehmke/completejourney")
+
+#Find the top ten products purchased with Vegetarian products
+
+#Gather all the product id's of vegetarian items
+VegeProducts <- VegeTransactions %>%
+  filter(product_type %in% c("FROZEN MEAT (VEGETARIAN)", "RICE BEVERAGE", "SOY BEVERAGE", "SOY/RICE MILK", "TOFU", "MEATLESS/VEGETARIAN", "NON-DAIRY CHEESE", "VEGETARIAN MEATS", "VEGETARIAN MISC")) %>%
+  group_by(product_type) %>%
+  summarize(Unique_Product_Ids = list(unique(product_id)), .groups = 'drop')
+
+#Store those ids as a single list
+VegeUniqueIds <- VegeProducts %>% unlist(VegeProducts$Unique_Product_Ids)
+
+#Use VegeUniqueIds to gather basket_id's including those products
+VegeBaskets <- transactions %>%
+  filter(product_id %in% VegeUniqueIds) %>%
+  group_by(basket_id) %>%
+  summarize(list(unique(basket_id)))
+
+#store the basket ids as a single list
+VegeUniqueBaskets <- unlist(VegeBaskets$`list(unique(basket_id))`)
+
+#Use the VegeUniqueBaskets to filter relevant basket_ids and then gather all products
+#in those baskets(minus vegetarian) and get a count of unique items
+VegeAdjacentBaskets <- productTrans %>%
+  filter(basket_id %in% VegeUniqueBaskets) %>%
+  filter(!product_type %in%  c("FROZEN MEAT (VEGETARIAN)", "RICE BEVERAGE", "SOY BEVERAGE", "SOY/RICE MILK", "TOFU", "MEATLESS/VEGETARIAN", "NON-DAIRY CHEESE", "VEGETARIAN MEATS", "VEGETARIAN MISC")) %>%
+  group_by(product_type) %>%
+  summarize(Total = n()) %>%
+  arrange(desc(Total))
+
+#filter for Top 10 items purchased with Vegetarian products
+Top10Adjacent <- head(VegeAdjacentBaskets, 10)
+
+#Create a Pie graph of those products. - Changed
+VegePieAdjacent <- Top10Adjacent %>%
+  ggplot(aes(x = "", Total, fill = product_type)) +
+  geom_bar(stat = 'identity', width = 1, show.legend = TRUE) +
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = my_colors) +
+  theme_void() +
+  labs(title = "Items Bought With Vegetarian Friendly Products",
+       caption = "https://github.com/bradleyboehmke/completejourney")
+```
+
+### Our Analysis {.tabset}
+
+#### Products and Demographics
+
+<div class = "row">
+  <div class = "col-md-6" >
+    ```{r}
+    #Print the VegeSales by product table.
+    VegeSalesByProduct
+    ```
+   </div>
+   <div class = "col-md-6" style="white-space: normal; word-break: keep-all;">
+    This table provides a detailed breakdown of sales by vegetarian and vegan products. The data reveals the top-performing product categories. We will use the top 5 performers of these categories to gain some insight into the trends revolving around them.
+   </div>
+</div>
+
+<div class = "row">
+  <div class = "col-md-6">
+```{r}
+print(VegeWeeklySalesTrends)
+```
+  </div>
+  <div class = "col-md-6">
+```{r}
+VegeProductWeeklySalesPerc
+```
+  </div>
+</div>
+
+  The graph and table above show weekly sales trends for the top five performing Vegetarian and Vegan categories captured by our data. We can take note of a few different things during the year of 2017. The top performers were Soy Beverage and Frozen Meat(Vegetarian). Both of these categories saw an average growth of 18% and 20%. Frozen Meat(Vegetarian), Tofu, and Soy/Rice Milk all, also, exceeded the growth pointed out by the Plant Based Foods Association. 
+
+
+```{r}
+# Print the first demographic plot (VegePieAge)
+print(VegePieAge)
+```
+
+
+```{r}
+# Print the second demographicplot (VegePieIncome)
+print(VegePieIncome)
+```
+
+  
+  These graphs reveal the  distribution of vegetarian and vegan product sales by age group and income brackets. This information helps us understand which age demographics are more likely to purchase these products.
+
+
+
+```{r}
+ print(VegePieHouseComp)
+```
+
+  Household composition analysis allows us to see the types of households—single-person, families, etc.—that are more likely to consume vegetarian and vegan products. In combination with the Age and Income graphs above, we can leverage this data to understand which demographics we should be advertising any new Vegetarian/Vegan friendly products to. The data shows us a clear picture of relevant demographics:
+  - These product purchasers are in 25 - 54 age range
+  - These purchasers are most typically in the 35k-74k income bracket
+  - Purchasers are typically from 2 adult households
+
+#### Locations and Advertising Pairing
+
+Stores and Items that work well with Vegetarian/Vegan Selections
+
+<div class = "row">
+  <div class = "col-md-6">
+  
+```{r}
+print(VegeStoreGraph)
+```
+
+  </div>
+  <div class = "col-md-6" style="white-space: normal; word-break: keep-all;">
+  
+    This section shows which stores have the highest sales for the vegetarian and vegan products we identified. By identifying these locations, we can focus advertising efforts and product placement strategies to maximize sales in high-performing regions. The top performers are stores 367, 381, and 321.
+
+  </div>
+</div>
+
+<div class = "row">
+  <div class = "col-md-6" style="white-space: normal; word-break: keep-all;">
+    The adjacent product chart reveals which other items are frequently bought alongside    vegetarian/vegan products. Top pairings for the year of 2017 were  Yogurt(Not Multipacks),Fluid Milk(White Only), and Shredded Cheese. As these product blend into a Vegetarian diet, these results were somewhat expected. Other categories of note are Bananas, Frozen Single Serve Entrees, and Frozen Bagged Vegetables. Using this information, we can evaluate opportunities for cross promotion strategies when bringing new products into the stores.
+  </div>
+  
+  <div class = "col-md-6">
+```{r}
+print(VegePieAdjacent)
+```
+  </div>
+</div>
+                 
+### Summary
+
+#### Should we expand the Vegetarian/Vegan Categories?
+
+  The goal of this analysis was to determine whether the Vegetarian and Vegan categories have enough appeal to justify expanding and promoting them to consumers. The data collected from the past year of sales provides the insights needed to make that decision. Top performers in this category, such as Vegetarian Meats and Soy Beverages, have shown average growth rates of up to 21%, with many other items exceeding the 8.1% growth seen in the broader market. This indicates that these products are in clear demand by our consumers. The performance of these categories guides us in sourcing new products and assures us that the risk of introducing them to our shelves is minimal.
+
+#### Who are the current demographics buying these products? Who should we be marketing new entries to?
+
+  Our analysis of customer demographics revealed a clear profile of the consumers who would likely welcome the introduction of new vegetarian and vegan products. A significant portion of purchasers falls within the 25-54 age range and the $34k-$74k income bracket. Additionally, most of these consumers are from two-adult households, with or without children, or single-adult households without children. With this information, we can focus our advertising efforts on the demographics most likely to respond positively to new vegetarian or vegan offerings. 
+
+#### Where can we do test runs, and what products can be paired with these options?
+
+  In examining the stores with the highest sales, stores 367, 381, and 321 were top performers. These locations, along with the rest in the top 10, provide lower-risk environments to test new product rollouts. An established customer base in these stores gives us confidence that we are targeting consumers already interested in these types of products. Additionally, we analyzed the items frequently purchased alongside vegetarian and vegan-friendly products. Items such as bananas, yogurt (pints and quarts), and white milk were often found in the same baskets as these options. This information helps us determine where to position these products to maximize visibility and encourage cross-selling.
+  
+#### Limitations of the data utilized for these insights
+
+  There are a few limitations to the data that should be noted. First, the scope of the data includes transactions from only 2,461 customer households. While the data does align with broader market trends, it may not fully represent our entire customer base. That said, this sample, along with the trends observed in the larger market, provides a reasonable level of confidence in the insights presented in this report. Another limitation is related to the product categorization. While the product_type category helped us identify vegetarian products, it lacks some specificity that could have yielded deeper insights. For instance, the absence of brand names means we cannot assess the influence of specific brands on consumer purchasing decisions.
+  
+#### Our Recommendation
+
+  Based on the analysis, we recommend expanding the Vegetarian and Vegan categories as we move into the next year. These products are aligned with both market trends and consumer demand, including among those who shop at our stores. The insights provided in this report should guide the introduction of new products in ways that capture consumer attention while minimizing any potential risks.
+  
